@@ -1,13 +1,11 @@
 package org.notmysock.compiler;
 import javax.tools.*;
+import java.io.*;
 import java.util.*;
+import java.util.jar.*;
 
 public class DynamicCompiler {
   public static void main(String[] args) throws Exception {
-    JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-    InMemoryFileManager manager = new InMemoryFileManager(compiler
-            .getStandardFileManager(null, null, null));
-    List<JavaFileObject> jfiles = new ArrayList<JavaFileObject>();
    
     StringBuilder sb = new StringBuilder();
     sb.append("package org.notmysock.dynamic;\n");
@@ -29,16 +27,47 @@ public class DynamicCompiler {
     sb.append("    }\n");
     sb.append("  }\n");
     sb.append("}\n");
-    
-    jfiles.add(new InMemorySourceFile("org.notmysock.dynamic.OuterClass", sb.toString()));
-    
-    compiler.getTask(null, manager, null, null,null, jfiles).call();    
+
+    File jarFile = getJarFile("org.notmysock.dynamic.OuterClass", sb.toString());
+
+    System.out.println("Written to " + jarFile);
+  }
+
+  public static File getJarFile(String className, String classSource) throws IOException {
+    JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+    InMemoryFileManager manager = new InMemoryFileManager(compiler
+            .getStandardFileManager(null, null, null));
+
+    List<JavaFileObject> jfiles = new ArrayList<JavaFileObject>();
+    jfiles.add(new InMemorySourceFile(className, classSource));
+
+    compiler.getTask(null, manager, null, null,null, jfiles).call();
 
     HashMap<String,InMemoryClassFile> classes = manager.getClasses();
 
+    if(classes.isEmpty()) {
+      return null;
+    }
+
     for(Map.Entry pair: classes.entrySet()) {
-      InMemoryClassFile klass = (InMemoryClassFile)pair.getValue();      
+      InMemoryClassFile klass = (InMemoryClassFile)pair.getValue();
       System.out.printf("%s, size=%d\n", ((String)pair.getKey()).replace('.','/'), klass.getBytes().length);
     }
+
+    File tempjar = File.createTempFile("dyncompile", ".jar"); 
+    JarOutputStream jar = new JarOutputStream(new FileOutputStream(tempjar));
+
+    for(Map.Entry pair: classes.entrySet()) {
+      InMemoryClassFile klass = (InMemoryClassFile)pair.getValue();
+      String path = ((String)pair.getKey()).replace('.','/')+(".class");      
+      JarEntry entry = new JarEntry(path);
+      jar.putNextEntry(entry);
+      byte[] bytecode = klass.getBytes();
+      jar.write(bytecode, 0, bytecode.length);
+      jar.closeEntry();
+    }
+
+    jar.close();
+    return tempjar;
   }
 }
